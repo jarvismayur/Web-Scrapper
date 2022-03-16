@@ -1,0 +1,144 @@
+from urllib.request import Request, urlopen
+from bs4 import BeautifulSoup
+import requests
+from datetime import datetime as dt
+from datetime import timedelta
+from pytz import timezone
+from time import time, sleep
+
+
+def insert(l):
+    url = l
+    req = Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+    webpage = urlopen(req,timeout=10).read()
+    from datetime import datetime
+
+    # current date and time
+    now = datetime.now()
+
+    timestamp = datetime.timestamp(now)
+    print("timestamp =", timestamp)
+    dt_object = datetime.fromtimestamp(timestamp)
+
+    print("dt_object =", dt_object)
+
+
+    soup = BeautifulSoup(webpage)
+    para = " "
+    term = " "
+    my_list = []
+    new_data = ""
+    title = soup.find(id="headline").string
+    slug = title.replace(" ", "-").lower()
+    subtitle = soup.find(id='subtitle')
+    paragraph = soup.find(id="story_text").find_all('p')[:-4]
+    for a in paragraph:
+        para = para + str(a)
+    source =  soup.find(id="source").string
+    summary = soup.find(id="abstract").string
+    journal = soup.find(id="journal_references").find('li')
+    terms = soup.find(id="related_terms").find_all('a')
+    for a in terms:
+        term = term + a.string + ","
+    MainCat = soup.find(id="related_topics").find_all('a')[0]
+    Cat = soup.find(id="related_topics").find_all('a')[1]
+    query = """INSERT INTO news_news ( title, slug, updated_on, content, created_on, image, status, source, summary, author_id, category_id, journal_reference) VALUES (%s, %s, %s ,%s, %s ,'uploads/news/logo.jpg',1, %s, %s,1, %s, %s ) """
+    print("Title" + title)
+    print("Tags " + term)
+    print("Main Category  " + str(MainCat.string))
+    print("Category " + str(Cat.string))
+    tag = """SELECT * FROM taggit_tag Where name = %s"""
+
+    import mysql.connector
+    from mysql.connector import Error
+
+    try:
+        connection = mysql.connector.connect(host='database-1.cez5x0venctn.ap-south-1.rds.amazonaws.com',
+                                             database='MAYUR',
+                                             user='admin',
+                                             password='qwertyuiop')
+        if connection.is_connected():
+            db_Info = connection.get_server_info()
+            print("Connected to MySQL Server version ", db_Info)
+            cursor = connection.cursor(prepared=True)
+            cursor.execute("select database();")
+            record = cursor.fetchone()
+            print("You're connected to database: ", record)
+            cursor.execute("""SELECT * FROM categories_category WHERE name = %s""", (Cat.string,))
+            records_category = cursor.fetchall()
+            if records_category:
+                for row in records_category:
+                    cat_id = row[0]
+            else:
+                cat_id = "27"
+            search_tuple = (title, )
+            cursor.execute("""SELECT * FROM news_news WHERE title = %s """, search_tuple)
+            search_record = cursor.fetchall()
+            if search_record:
+                print("Data Is Already There !!")
+            else:
+                tuple1 = (title, slug, dt_object, str(para),dt_object, source, summary, cat_id, str(journal))
+                cursor.execute(query, tuple1)
+                search_tuple = (title, )
+                cursor.execute("""SELECT * FROM news_news WHERE title = %s """, search_tuple)
+                search_record = cursor.fetchall()
+                if search_record:
+                    for  row in search_record:
+                            new_data = row[0]
+                            print(new_data)
+                i = 0 
+                for a in terms:
+                    new_tag = terms[i].string
+                    new_tag_slug = new_tag.lower()
+                    tuple2 = (new_tag,)
+                    cursor.execute(tag, tuple2)
+                    i = i +1
+                    records = cursor.fetchall()
+                    print(records)
+                    if records:
+                        for x in records:
+                            print(x[0])
+                            my_list.append(x[0])
+                    else:
+                        print("No Record Found !!" + new_tag)
+                        tuple3 = (new_tag, new_tag_slug)
+                        cursor.execute("""INSERT INTO taggit_tag (name, slug) values (%s, %s )""", tuple3)
+                        cursor.execute("""SELECT * FROM taggit_tag where name = %s """, (new_tag, ))
+                        for  row in cursor.fetchall():
+                            print(row[0])
+                            my_list.append(row[0])
+                        print("Tag Added")
+                        
+                for a in my_list:
+                    cursor.execute("""INSERT INTO taggit_taggeditem (object_id, content_type_id, tag_id) values (%s, %s, %s)""", (new_data, "13", a))
+            
+            connection.commit()
+            print(my_list)
+            print(cursor.rowcount, "Record inserted successfully into news table")
+
+    except Error as e:
+        print("Error while connecting to MySQL", e)
+        
+def donathing():
+    return 0
+    
+while(True):
+    sleep(.5)
+    tz = timezone('EST')
+    now = dt.now(tz) - timedelta(hours=2, minutes=35)
+    s = now.strftime("%y %m %d %H %M %S")
+    year = now.strftime("%y")
+    month = now.strftime("%m")
+    link = s.replace(" ", "")
+    url = "https://www.sciencedaily.com/releases/20"+year+"/"+month+"/"+link+".htm"
+    try:
+        req = Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        webpage = urlopen(req,timeout=10).read()
+        print("Link Make")
+        print(url)
+        insert(url)
+        print('\nExample 1:', s)
+    except:
+        print(".", end="\b")
+    
+  
